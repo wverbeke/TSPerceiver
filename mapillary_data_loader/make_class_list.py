@@ -4,6 +4,7 @@ By using the functionality here we can easily get the list of Mapillary classes 
 also guarantee the order stays correct and consistent.
 """
 import os
+import sys
 from functools import lru_cache
 from mapillary_data_loader.preproc_mapillary import read_annotation, TRAIN_ANNOTATION_LIST_PATH, EVAL_ANNOTATION_LIST_PATH
 

@@ -4,33 +4,52 @@ The loader will load images containing individual traffic sign patches. This ass
 data set has already been preprocessed to extract all traffic signs.
 """
 import os
+import sys
+from typing import Tuple
+main_directory = os.path.dirname(os.path.dirname(os.path.abspath( __file__)))
+sys.path.insert(0, main_directory)
+
 import json
+import torch
 import math
 from PIL import Image
 from torch.utils.data import Dataset, DataLoader
 import torchvision
+import einops
 
 from torchvision import datasets, transforms
+import matplotlib.pyplot as plt
 
-from mapillary_data_loader.load_mapillary import MapillaryDataset
+from random_fractional_crop import RandomFractionalCrop
+
 from mapillary_data_loader.make_class_list import mapillary_class_list
 from mapillary_data_loader.preproc_mapillary import TRAIN_ANNOTATION_LIST_PATH, EVAL_ANNOTATION_LIST_PATH, read_annotation
 
-_SHARED_TRANSFORMS = transforms.ToTensor()
 _DATALOADER_KWARGS = {"num_workers": os.cpu_count(), "prefetch_factor": 4}
-_TRANSFORMS = transforms.Compose([transforms.RandomRotation(15), _SHARED_TRANSFORMS])#transforms.RandomCrop(TRAINING_PATCH_SIZE),  _SHARED_TRANSFORMS
-
+_EVAL_TRANSFORMS = transforms.ToTensor()
+_TRAIN_TRANSFORMS = transforms.Compose([
+    transforms.RandomRotation(15),
+    #torchvision.transforms.v2.ColorJitter(brightness=
+    transforms.ToTensor(),
+    RandomFractionalCrop(min_crop_scale=0.7, max_crop_scale=0.9, seed=69),
+])
 
 
 class MapillaryDatasetBase(Dataset):
-    """Shared operations between CNN and Perceiver dataloader."""
+    """Shared operations between CNN and Perceiver dataloader.
 
-    # kwargs are ignored but make it callable in the same way as standard pytorch loaders
-    def __init__(self, train: bool, **kwargs):
+    Images from the dataset are loaded and augmented. Every image flowing out of this dataset will
+    generally have a different size, so appropriate resizing measures must be taken before
+    batching. These are substantially different for the CNN and Perceiver variants.
+    """
+
+    def __init__(self, train: bool):
+        """Initialize."""
         if train:
             annotation_dict = read_annotation(TRAIN_ANNOTATION_LIST_PATH)
         else:
             annotation_dict = read_annotation(EVAL_ANNOTATION_LIST_PATH)
+        self._train = train
         self._image_paths = []
         self._annotations = []
 
@@ -45,62 +64,145 @@ class MapillaryDatasetBase(Dataset):
             class_name = class_name[0]
             self._image_paths.append(image_path)
             self._annotations.append(class_list.index(class_name))
-        #self._transform = _TRANSFORMS
 
     def __len__(self):
         return len(self._image_paths)
 
     def __getitem__(self, index):
 
-        # Read and return the image.
+        # Read and augment the image.
         image = Image.open(self._image_paths[index]).convert("RGB")
-        return image, self._annotations[index]
-        #image_tensor = self._transform(image)
+        if self._train:
+            image = _TRAIN_TRANSFORMS(image)
+        else:
+            image = _EVAL_TRANSFORMS(image)
 
-        #return image_tensor, self._annotations[index]
+        # Some small images will not be contiguous when reaching this point, and this can cause
+        # trouble with view operations later on.
+        image = image.contiguous()
+        return image, self._annotations[index]
+
+
+def _resize_im(im: torch.Tensor, out_size: Tuple):
+    """Resize a tensor image.
+
+    Note that the torchvision.transforms.Resize class expects a PIL image, but we are already
+    operating on tensors before we want to do the resize.
+    """
+    # There is currently a bug in torch that does not let me enable antialias.
+    # see https://github.com/pytorch/pytorch/issues/113445
+    # TODO: Update when this is fixed.
+    return torch.nn.functional.interpolate(im.view(1, *im.shape), size=out_size, mode="bilinear", antialias=False)[0]
 
 
 class MapillaryDatasetPerceiver(MapillaryDatasetBase):
+    """Dataset for training Perceiver.
 
-    def __init__(self, max_size=90000, **kwargs):
-        super.__init__(**kwargs)
+    A maximum byte tensor size is specified. Images will be flattened first. If they exceed the
+    maximum byte tensor size, they will be resized with preservation of aspect ratio to the
+    closest size smaller or equal to the maximum tensor size before flattening. If they are smaller
+    than the maximum size they can be padded for batched training or be unpadded for inference.
+    """
+    def __init__(self, max_size: int =40000, **kwargs):
+        """Initialize.
+
+        Args:
+            max_size: Maximum byte tensor size.
+        """
+        super().__init__(**kwargs)
         self._max_size = max_size
-        im_dim = int(math.sqrt(max_size))
-        self._resize_op = torchvision.transforms.Resize((im_dim, im_dim))
 
-    def _process_im(self, im):
+    def _process_im(self, im: torch.Tensor):
+        """Process an image.
+    
+        See class header for description.
+        """
         im_size = im.shape[1]*im.shape[2]
-        if im_size <= max_size:
-            im = im.view(im.shape[0], im.shape[1]*im.shape[2])
-            if im__size == max_size:
-                return im
+        # If the image is too big we need to resize it, but we want to keep the aspect ratio.
+        # Padding might still be needed since we might not end up exactly at the maximum tensor
+        # size.
+        if im_size > self._max_size:
+            scale_factor = math.sqrt(self._max_size/im_size)
+            out_size = int(im.shape[1]*scale_factor), int(im.shape[2]*scale_factor)
+            im = _resize_im(im, out_size)
 
-            diff = max_size - im.shape[1]
-            pad = torch.full([im.shape[0], im.shape[1]], -1)
-            im = torch.cat([im, pad])
-            return im
-        else:
-            im = self._resize_op(im)
-            return self._process_im(im)
+        # If the image is small enough we can flatten it and pad it to be fed to Perceiver.
+        # We want to return the height and width, but we must recompute them here in case we
+        # downsampled an image.
+        h, w = im.shape[1:]
+        im_size = h*w
+        im = im.view(im.shape[0], im_size)
+        if im_size == self._max_size:
+            return im, h, w
 
+        diff = self._max_size - im.shape[1]
+        pad = torch.full([im.shape[0], diff], -1)
+        im = torch.cat([im, pad], dim=-1)
+        return im, h, w
 
-    def __getitem__(self, index):
+    def __getitem__(self, index: int):
+        """Load an image and do the flattening preprocessing.
+
+        In addition to the image and the annotation we return the height and width so that we can
+        use this for positional encodings.
+
+        The output looks like:  (im, h, w), annotation
+        """
         im, anno = super().__getitem__(index)
         return self._process_im(im), anno
 
 
-class MapillaryDatasetCNN(self, im_size, **kwargs):
-    def __init__(**kwargs):
-        self._resize = torchvision.transforms.Resize(im_size)
+class MapillaryDatasetCNN(MapillaryDatasetBase):
+    """Dataset for training CNN models.
 
-    def __getitem__(self, im):
+    Each image will be resized to the same size.
+    """
+    def __init__(self, im_size: Tuple, **kwargs):
+        """Initialize.
+        
+        Args:
+            im_size: Output image size.
+        """
+        super().__init__(**kwargs)
+        def _resize_op(im):
+            return _resize_im(im, im_size)
+
+        self._resize_op = _resize_op
+
+    def __getitem__(self, index):
+        """Load an image and resize it."""
         im, anno = super().__getitem__(index)
-        return self._resize(im), anno
-
+        return self._resize_op(im), anno
 
 
 if __name__ == "__main__":
-    ds = MapillaryDatasetPerceiver(900, True)
-    for d in ds:
-        print(d)
 
+    # Visualize the Perceiver dataset and CNN datasets.
+    ds_p = MapillaryDatasetPerceiver(2500, train=True)
+
+    w = 10
+    h = 10
+    fig = plt.figure(figsize=(8, 8))
+    columns = 3
+    rows = 3
+
+    ds_p = iter(ds_p)
+    for i in range(1, columns*rows +1):
+        im, h, w= next(ds_p)[0]
+        im = im[:,:h*w]
+        im = einops.rearrange(im, "c (h w) -> h w c", h=h, w=w)
+        fig.add_subplot(rows, columns, i)
+        plt.imshow(im)
+    plt.show()
+    plt.clf()
+    
+
+    ds_c = MapillaryDatasetCNN((50, 50), train=True)
+    ds_c = iter(ds_c)
+    fig = plt.figure(figsize=(8, 8))
+    for i in range(1, columns*rows +1):
+        im = next(ds_c)[0]
+        im = einops.rearrange(im, "c h w -> h w c")
+        fig.add_subplot(rows, columns, i)
+        plt.imshow(im)
+    plt.show()
