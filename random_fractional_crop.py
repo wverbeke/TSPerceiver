@@ -13,7 +13,7 @@ class RandomFractionalCrop:
     out, and the original aspect ratio will be preserved. The part of the image being cropped after
     the scale is determined is uniformly sampled across the image.
     """
-    def __init__(self, min_crop_scale: int, max_crop_scale: int, seed=-1):
+    def __init__(self, min_crop_scale: float, max_crop_scale: float, seed: int = -1):
         """Init.
 
         Args:
@@ -26,7 +26,7 @@ class RandomFractionalCrop:
         self._seed = seed
         random.seed(seed)
 
-    def _random_size(self, h, w):
+    def _random_size(self, h: int, w: int):
         min_h = int(h*self._min_scale)
         max_h = int(h*self._max_scale)
         min_w = int(w*self._min_scale)
@@ -36,12 +36,11 @@ class RandomFractionalCrop:
         crop_w = random.randint(min_w, max_w)
         return crop_h, crop_w
 
-    def __call__(self, x):
+    def __call__(self, x: torch.Tensor):
         """Randomly crop an image tensor."""
         h, w = x.shape[1:]
         
         rh, rw = self._random_size(h, w)
-        print(rw, rh)
 
         max_corner = (h - rh, w - rw)
         rx_corner = random.randint(0, max_corner[0])
