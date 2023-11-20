@@ -32,6 +32,7 @@ def train_perceiver():
         n_heads_self=8,
         n_self_per_cross=6, # 6 In OG paper
         max_byte_array_size=40000,
+        dim_pe=3,
     )
     n_classes = len(mapillary_class_list())
     model = PerceiverClassifier(backbone, n_classes)
