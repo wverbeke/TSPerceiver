@@ -27,7 +27,7 @@ def train_perceiver():
     backbone = Perceiver(
         in_channels=3,
         n_latent=128, #512 in OG paper
-        dim_latent=128, #1024 in OG paper
+        dim_latent=256, #1024 in OG paper
         n_heads_cross=1,
         n_heads_self=8,
         n_self_per_cross=6, # 6 In OG paper
@@ -37,8 +37,8 @@ def train_perceiver():
     model = PerceiverClassifier(backbone, n_classes)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
 
-    train_loader = get_perceiver_dataloader(batch_size=8, train=True, max_size=40000)
-    eval_loader = get_perceiver_dataloader(batch_size=8, train=False, max_size=40000)
+    train_loader = get_perceiver_dataloader(batch_size=42, train=True, max_size=40000)
+    eval_loader = get_perceiver_dataloader(batch_size=42, train=False, max_size=40000)
     return train_model(train_loader, eval_loader, model, optimizer, "perceiver_model_checkpoints")
 
 

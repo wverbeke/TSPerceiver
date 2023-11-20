@@ -19,6 +19,10 @@ class ModelTrainer:
         self._model = model.cuda()
         self._epoch_counter = 1
 
+        # Mixed precision training
+        self._scaler = torch.cuda.amp.GradScaler()
+
+
     def _forward_pass(self, x_batch, y_batch):
         """Forward pass and loss calculation."""
         if isinstance(x_batch, List):
@@ -34,12 +38,15 @@ class ModelTrainer:
 
     def train_step(self, x_batch, y_batch):
         """Apply a single training batch."""
-        loss = self._forward_pass(x_batch, y_batch)
+        with torch.autocast(device_type="cuda", dtype=torch.float16):
+            loss = self._forward_pass(x_batch, y_batch)
 
         # Backpropagation
-        self._optimizer.zero_grad()
-        loss.backward()
-        self._optimizer.step()
+        self._scaler.scale(loss).backward()
+        self._scaler.unscale_(self._optimizer)
+        self._scaler.step(self._optimizer)
+        self._scaler.update()
+        self._optimizer.zero_grad(set_to_none=True)
 
         return loss
 
