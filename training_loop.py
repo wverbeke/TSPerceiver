@@ -26,8 +26,8 @@ class ModelTrainer:
     def _forward_pass(self, x_batch, y_batch):
         """Forward pass and loss calculation."""
         if isinstance(x_batch, List):
-            x, h, w = x_batch
-            x_batch = (x.to("cuda"), h, w)
+            x, pe = x_batch
+            x_batch = (x.to("cuda"), pe.to("cuda"))
         else:
             x_batch = x_batch.to("cuda")
         y_batch = y_batch.to("cuda")

@@ -32,3 +32,7 @@ def mapillary_class_list():
     with open(MAPILLARY_CLASS_LIST_PATH) as f:
         class_list = [l.rstrip() for l in f.readlines()]
     return class_list
+
+
+if __name__ == "__main__":
+    print(f"Mapillary has {len(mapillary_class_list)} classes.")

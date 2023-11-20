@@ -196,25 +196,21 @@ class CrossAttentionBlock(nn.Module):
 
 class Perceiver(nn.Module):
 
-    def __init__(self, in_channels, n_latent, dim_latent, n_heads_cross = 1, n_heads_self = 8, n_self_per_cross=6, max_byte_array_size=40000, dim_pe=3):
+    def __init__(self, in_channels, n_latent, dim_latent, n_heads_cross = 1, n_heads_self = 8, n_self_per_cross=6):
         super().__init__()
         self._latent = nn.Parameter(torch.randn(n_latent, dim_latent))
-        self._cross_attend_1 = CrossAttentionBlock(latent_channels=dim_latent, data_channels=in_channels + dim_pe, n_heads=n_heads_cross, dropout_p=0)
+        self._cross_attend_1 = CrossAttentionBlock(latent_channels=dim_latent, data_channels=in_channels + 2, n_heads=n_heads_cross, dropout_p=0)
 
         self._transformer_1 = nn.Sequential(*[TransformerBlock(in_channels=dim_latent, n_heads=n_heads_self, dropout_p=0) for _ in range(n_self_per_cross)])
-        self._cross_attend_2 = CrossAttentionBlock(latent_channels=dim_latent, data_channels=in_channels + dim_pe, n_heads=n_heads_cross, dropout_p=0)
+        self._cross_attend_2 = CrossAttentionBlock(latent_channels=dim_latent, data_channels=in_channels + 2, n_heads=n_heads_cross, dropout_p=0)
         self._transformer_2 = nn.Sequential(*[TransformerBlock(in_channels=dim_latent, n_heads=n_heads_self, dropout_p=0) for _ in range(n_self_per_cross)])
 
-        self._pe = torch.nn.Embedding(max_byte_array_size, dim_pe)
-
-    def forward(self, byte_array):
+    def forward(self, x):
+        byte_array, pe = x
         batch_size = byte_array.shape[0]
 
-        # Positional encoding.
-        n_byte_pos = byte_array.shape[1]
-        pe = self._pe(torch.arange(n_byte_pos, device="cuda").unsqueeze(0))
-        pe = pe.repeat(batch_size, 1, 1)
-        byte_array = torch.cat([byte_array, pe], dim=-1)
+        # Concat byte array with positional encoding.
+        byte_array = torch.cat([byte_array, pe], axis=-1)
 
         # Repeat the latent array along the batch axis.
         latent = self._latent.repeat(batch_size, 1, 1)
@@ -235,7 +231,6 @@ class PerceiverClassifier(nn.Module):
         self._class_proj = nn.Linear(perceiver_model._latent.shape[-1], n_classes, bias=True)
 
     def forward(self, x):
-        x, h, w = x
         x = self._perceiver(x)
         x = torch.mean(x, dim=1)
         x = self._class_proj(x)

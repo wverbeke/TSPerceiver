@@ -154,7 +154,26 @@ class MapillaryDatasetPerceiver(MapillaryDatasetBase):
         # TODO Check if we want to do this reshape in the model instead.
         # The channel dimension must be last for running the transformer.
         im = torch.transpose(im, 0, 1)
-        return (im, h, w), anno
+
+
+        # Generate positional encodings here since arange can not be vectorized on GPU in the model
+        # Positional encoding.
+        y_pos = torch.arange(w, dtype=torch.float32).unsqueeze(0)
+        y_pos /= torch.tensor(w, dtype=torch.float32)
+        x_pos = torch.arange(h, dtype=torch.float32).unsqueeze(1)
+        x_pos /= torch.tensor(h, dtype=torch.float32)
+        y_pos = y_pos.repeat(h, 1)
+        x_pos = x_pos.repeat(1, w)
+
+        y_pos = y_pos.view(h*w, 1)
+        x_pos = x_pos.view(h*w, 1)
+
+        pe = torch.cat([x_pos, y_pos], dim=-1)
+
+        n_empty = im.shape[0] - h*w
+        pe_empty =  torch.zeros(n_empty, 2)
+        pe = torch.cat([pe, pe_empty], dim=0)
+        return (im, pe), anno
 
 
 def get_perceiver_dataloader(batch_size: int, train: bool, max_size: int):
