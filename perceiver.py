@@ -3,51 +3,64 @@ import torch
 from torch import nn
 
 
-class Attention(nn.Module):
+class MultiHeadAttention(nn.Module):
     """Multi-head attention in transformer using flash attention https://arxiv.org/abs/2205.14135."""
-    def __init__(self, query_dim: int, value_dim: int, n_heads: int, dropout_p: float = 0.0):
+    def __init__(
+        self,
+        dim_query_in: int,
+        dim_query_out: int,
+        dim_kv_in: int,
+        dim_value_out: int,
+        dim_out: int,
+        n_heads: int,
+        dropout_p: float = 0.0,
+    ):
         """Initialize.
 
         In this case we do not need the sequence length since the pytorch flash attention
         implementation is dynamic w.r.t. the sequence length.
         """
         super().__init__()
-        assert query_dim % n_heads == 0
-        assert value_dim % n_heads == 0
+        assert dim_query_out % n_heads == 0
+        assert dim_value_out % n_heads == 0
 
         self._n_heads = n_heads
 
-        self._query_transf = nn.Linear(query_dim, query_dim, bias=False)
-        self._query_head_dim = query_dim//n_heads
-        self._query_dim = query_dim
+        # Transformation to be applied to the input used to make queries.
+        self._query_transf = nn.Linear(dim_query_in, dim_query_out, bias=False)
 
-        self._key_transf = nn.Linear(value_dim, query_dim, bias=False)
-        # Same dimensionality as queries
+        # Dimensionality of each separate query in the multiple heads.
+        self._query_head_dim = dim_query_out//n_heads
 
-        self._value_transf = nn.Linear(value_dim, query_dim, bias=False)
-        #self._value_head_dim = value_dim//n_heads
-        #self._value_dim = value_dim
+        # The attention product requires the keys and queries to have the same dimensionality.
+        self._key_transf = nn.Linear(dim_kv_in, dim_query_out, bias=False)
+
+        self._value_transf = nn.Linear(dim_kv_in, dim_value_out, bias=False)
+        self._value_head_dim = dim_value_out//n_heads
+        self._value_out_dim = dim_value_out
 
         # The original transformer paper (https://arxiv.org/abs/1706.03762) also does a projection
         # as a part of the attention block.
-        self._out_transf = nn.Linear(query_dim, query_dim, bias=False)
+        self._out_transf = nn.Linear(dim_value_out, dim_out, bias=False)
 
         self._dropout_p = dropout_p
 
-    def forward(self, q: torch.Tensor, kv: torch.Tensor):
+    def forward(self, q_in: torch.Tensor, kv_in: torch.Tensor):
         """Forward pass."""
         # We need to transform the keys queries and values to be able to apply multiple attention
         # heads.
-        B, NQ, _ = q.shape
+        B, NQ, _ = q_in.shape
 
-        queries = self._query_transf(q)
+        queries = self._query_transf(q_in)
         queries = queries.view(B, NQ, self._n_heads, self._query_head_dim).transpose(1, 2)
 
-        _, NKV, _ = kv.shape
-        keys = self._key_transf(kv)
-        values = self._value_transf(kv)
+        _, NKV, _ = kv_in.shape
+        keys = self._key_transf(kv_in)
+    
+        values = self._value_transf(kv_in)
+
         keys = keys.view(B, NKV, self._n_heads, self._query_head_dim).transpose(1, 2)
-        values = values.view(B, NKV, self._n_heads, self._query_head_dim).transpose(1, 2)
+        values = values.view(B, NKV, self._n_heads, self._value_head_dim).transpose(1, 2)
 
         # Torch implementation of flash attention.
         # is_causal is crucial here, since otherwise the model will be able to look at tokens into
@@ -56,7 +69,7 @@ class Attention(nn.Module):
 
         # Concatenate the channels from the multiple heads before applying the final linear
         # projection.
-        out = out.transpose(1, 2).contiguous().view(B, NQ, self._query_dim)
+        out = out.transpose(1, 2).contiguous().view(B, NQ, self._value_out_dim)
         return self._out_transf(out)
 
 
@@ -67,7 +80,7 @@ def _ln(x: torch.Tensor):
 
 
 class TransformerBlock(nn.Module):
-    """Implementation of a transformer block, which contains an attention layer."""
+    """Implementation of a transformer block, which contains a self-attention layer."""
     def __init__(self, in_channels: int, n_heads: int, dropout_p: float = 0.0, mlp_channels=None):
         """Initialize the transformer block.
 
@@ -94,7 +107,16 @@ class TransformerBlock(nn.Module):
         super().__init__()
         if mlp_channels is None:
             mlp_channels = in_channels*4
-        self._att = Attention(query_dim=in_channels, value_dim=in_channels, n_heads=n_heads, dropout_p=dropout_p)
+        self._att = MultiHeadAttention(
+            dim_query_in=in_channels,
+            dim_query_out=in_channels,
+            dim_kv_in=in_channels,
+            dim_value_out=in_channels,
+            dim_out=in_channels,
+            n_heads=n_heads,
+            dropout_p=dropout_p
+        )
+
         self._linear_1 = nn.Linear(in_channels, mlp_channels, bias=True)
         self._linear_2 = nn.Linear(mlp_channels, in_channels, bias=True)
 
@@ -142,7 +164,15 @@ class CrossAttentionBlock(nn.Module):
         super().__init__()
         if mlp_channels is None:
             mlp_channels = latent_channels*4
-        self._att = Attention(query_dim=latent_channels, value_dim=data_channels, n_heads=n_heads, dropout_p=dropout_p)
+        self._att = MultiHeadAttention(
+            dim_query_in=latent_channels,
+            dim_query_out=latent_channels,
+            dim_kv_in=data_channels,
+            dim_value_out=latent_channels,
+            dim_out=latent_channels,
+            n_heads=n_heads,
+            dropout_p=dropout_p
+        )
         self._linear_1 = nn.Linear(latent_channels, mlp_channels, bias=True)
         self._linear_2 = nn.Linear(mlp_channels, latent_channels, bias=True)
 
@@ -170,9 +200,10 @@ class Perceiver(nn.Module):
         super().__init__()
         self._latent = nn.Parameter(torch.randn(n_latent, dim_latent))
         self._cross_attend_1 = CrossAttentionBlock(latent_channels=dim_latent, data_channels=in_channels, n_heads=n_heads_cross, dropout_p=0)
-        self._transformer_1 = nn.Sequential(*[TransformerBlock(in_channels=dim_latent, n_heads=n_heads_self, dropout_p=0) for _ in range(6)])
+
+        self._transformer_1 = nn.Sequential(*[TransformerBlock(in_channels=dim_latent, n_heads=n_heads_self, dropout_p=0) for _ in range(n_self_per_cross)])
         self._cross_attend_2 = CrossAttentionBlock(latent_channels=dim_latent, data_channels=in_channels, n_heads=n_heads_cross, dropout_p=0)
-        self._transformer_2 = nn.Sequential(*[TransformerBlock(in_channels=dim_latent, n_heads=n_heads_self, dropout_p=0) for _ in range(6)])
+        self._transformer_2 = nn.Sequential(*[TransformerBlock(in_channels=dim_latent, n_heads=n_heads_self, dropout_p=0) for _ in range(n_self_per_cross)])
 
 
     def forward(self, byte_array):
@@ -193,6 +224,7 @@ class PerceiverClassifier(nn.Module):
         self._class_proj = nn.Linear(perceiver_model._latent.shape[-1], n_classes, bias=True)
 
     def forward(self, x):
+        x, h, w = x
         x = self._perceiver(x)
         x = torch.mean(x, dim=1)
         x = self._class_proj(x)

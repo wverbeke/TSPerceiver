@@ -25,7 +25,6 @@ from random_fractional_crop import RandomFractionalCrop
 from mapillary_data_loader.make_class_list import mapillary_class_list
 from mapillary_data_loader.preproc_mapillary import TRAIN_ANNOTATION_LIST_PATH, EVAL_ANNOTATION_LIST_PATH, read_annotation
 
-_DATALOADER_KWARGS = {"num_workers": os.cpu_count(), "prefetch_factor": 4}
 _EVAL_TRANSFORMS = transforms.ToTensor()
 _TRAIN_TRANSFORMS = transforms.Compose([
     transforms.RandomRotation(15),
@@ -34,6 +33,7 @@ _TRAIN_TRANSFORMS = transforms.Compose([
     RandomFractionalCrop(min_crop_scale=0.7, max_crop_scale=0.9, seed=69),
 ])
 
+_DATALOADER_KWARGS = {"num_workers": os.cpu_count(), "prefetch_factor": 4}
 
 class MapillaryDatasetBase(Dataset):
     """Shared operations between CNN and Perceiver dataloader.
@@ -149,7 +149,18 @@ class MapillaryDatasetPerceiver(MapillaryDatasetBase):
         The output looks like:  (im, h, w), annotation
         """
         im, anno = super().__getitem__(index)
-        return self._process_im(im), anno
+        im, h, w = self._process_im(im)
+
+        # TODO Check if we want to do this reshape in the model instead.
+        # The channel dimension must be last for running the transformer.
+        im = torch.transpose(im, 0, 1)
+        return (im, h, w), anno
+
+
+def get_perceiver_dataloader(batch_size: int, train: bool, max_size: int):
+    dset = MapillaryDatasetPerceiver(max_size=max_size, train=train)
+    return DataLoader(dset, batch_size=batch_size, shuffle=train, drop_last=train, **_DATALOADER_KWARGS)
+    #return DataLoader(dset, batch_size=batch_size, **_DATALOADER_KWARGS)#, shuffle=train, drop_last=train, *_DATALOADER_KWARGS)
 
 
 class MapillaryDatasetCNN(MapillaryDatasetBase):
@@ -173,6 +184,10 @@ class MapillaryDatasetCNN(MapillaryDatasetBase):
         """Load an image and resize it."""
         im, anno = super().__getitem__(index)
         return self._resize_op(im), anno
+
+def get_cnn_dataloader(batch_size: int, train: bool, im_size: Tuple):
+    dset = MapillaryDatasetCNN(im_size=im_size, train=train)
+    return DataLoader(dset, batch_size=batch_size, shuffle=train, drop_last=train, *_DATALOADER_KWARGS)
 
 
 if __name__ == "__main__":
