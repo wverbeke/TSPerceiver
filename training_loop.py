@@ -79,8 +79,6 @@ class ModelTrainer:
             loss = self.train_step(x_batch, y_batch)
             total_train_loss += loss
             num_batches += 1
-            if num_batches > 2:
-                break
         return (total_train_loss/num_batches)
 
     @torch.no_grad()
@@ -101,7 +99,6 @@ class ModelTrainer:
         true_classes = []
         heights = []
         widths = []
-        n_batch = 0
         with torch.no_grad():
             count = 0
             for x_batch, y_batch in tqdm(dataloader):
@@ -118,9 +115,6 @@ class ModelTrainer:
                 width_index = 3 if len(x_batch) == 4 else 2
                 heights.append(x_batch[height_index])
                 widths.append(x_batch[width_index])
-                n_batch += 1
-                if n_batch > 2:
-                    break
 
         avg_eval_loss = total_eval_loss/num_samples
         metric_dict = compute_all_metrics(predicted_classes, true_classes, heights, widths)    
