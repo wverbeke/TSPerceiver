@@ -1,6 +1,8 @@
 """Perceiver model."""
 import torch
 from torch import nn
+from math import pi
+import einops
 
 
 class MultiHeadAttention(nn.Module):
@@ -192,17 +194,45 @@ class CrossAttentionBlock(nn.Module):
         return latent
 
 
+def fourier_encode(x, num_bands, max_freq):
+    """Fourier encode position tensors.
+    
+    Input has shape B, H*W, 2
+    """
+    h = torch.max(x[:, :, 0], dim=1)[0]
+    w = torch.max(x[:, :, 1], dim=1)[0]
+
+    x -= x/2
+    
+    x[:, :, 0] /= 0.5 * h.unsqueeze(1)
+    x[:, :, 1] /= 0.5 * w.unsqueeze(1)
+
+    freqs = torch.linspace(1.0, max_freq/2.0, num_bands, device=x.device)
+
+    x = x.unsqueeze(-1)
+    orig_x = x
+    freqs = freqs.view(1, 1, 1, num_bands)
+    x = x*freqs*pi
+
+    x = torch.concat([x.sin(), x.cos(), orig_x], dim=-1)
+    x = einops.rearrange(x, "b n d c -> b n (d c)")
+    return x
+
 
 
 class Perceiver(nn.Module):
 
-    def __init__(self, in_channels, n_latent, dim_latent, n_heads_cross = 1, n_heads_self = 8, n_self_per_cross=6):
+    def __init__(self, in_channels, n_latent, dim_latent, n_heads_cross = 1, n_heads_self = 8, n_self_per_cross=6, num_freq_bands=64, max_freq=300):
         super().__init__()
         self._latent = nn.Parameter(torch.randn(n_latent, dim_latent))
-        self._cross_attend_1 = CrossAttentionBlock(latent_channels=dim_latent, data_channels=in_channels + 2, n_heads=n_heads_cross, dropout_p=0)
+        self._num_freq_bands = num_freq_bands
+        self._max_freq = max_freq
+
+
+        self._cross_attend_1 = CrossAttentionBlock(latent_channels=dim_latent, data_channels=in_channels + 2*(2*num_freq_bands + 1), n_heads=n_heads_cross, dropout_p=0)
 
         self._transformer_1 = nn.Sequential(*[TransformerBlock(in_channels=dim_latent, n_heads=n_heads_self, dropout_p=0) for _ in range(n_self_per_cross)])
-        self._cross_attend_2 = CrossAttentionBlock(latent_channels=dim_latent, data_channels=in_channels + 2, n_heads=n_heads_cross, dropout_p=0)
+        self._cross_attend_2 = CrossAttentionBlock(latent_channels=dim_latent, data_channels=in_channels +  2*(2*num_freq_bands + 1), n_heads=n_heads_cross, dropout_p=0)
         self._transformer_2 = nn.Sequential(*[TransformerBlock(in_channels=dim_latent, n_heads=n_heads_self, dropout_p=0) for _ in range(n_self_per_cross)])
 
     def forward(self, x):
@@ -210,6 +240,7 @@ class Perceiver(nn.Module):
         batch_size = byte_array.shape[0]
 
         # Concat byte array with positional encoding.
+        pe = fourier_encode(pe, num_bands=self._num_freq_bands, max_freq=self._max_freq)
         byte_array = torch.cat([byte_array, pe], axis=-1)
 
         # Repeat the latent array along the batch axis.
@@ -234,13 +265,17 @@ class PerceiverClassifier(nn.Module):
         x = self._perceiver(x)
         x = torch.mean(x, dim=1)
         x = self._class_proj(x)
-        return torch.nn.functional.softmax(x, dim=-1)
+        # Warning: Do not softmax here because torch does it in the loss function.
+        return x
 
 
 if __name__ == "__main__":
-    q = torch.rand(2, 100, 10)
-    kv = torch.rand(2, 100, 10)
 
-    p = Perceiver(10, 100, 128, 1, 8, 6)
-    pcls = PerceiverClassifier(p, 10)
-    print(pcls(kv).shape)
+    x = torch.rand(2, 100, 2)
+    fourier_encode(x, 4, 4)
+    #q = torch.rand(2, 100, 10)
+    #kv = torch.rand(2, 100, 10)
+
+    #p = Perceiver(10, 100, 128, 1, 8, 6)
+    #pcls = PerceiverClassifier(p, 10)
+    #print(pcls(kv).shape)

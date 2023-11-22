@@ -159,9 +159,7 @@ class MapillaryDatasetPerceiver(MapillaryDatasetBase):
         # Generate positional encodings here since arange can not be vectorized on GPU in the model
         # Positional encoding.
         y_pos = torch.arange(w, dtype=torch.float32).unsqueeze(0)
-        y_pos /= torch.tensor(w, dtype=torch.float32)
         x_pos = torch.arange(h, dtype=torch.float32).unsqueeze(1)
-        x_pos /= torch.tensor(h, dtype=torch.float32)
         y_pos = y_pos.repeat(h, 1)
         x_pos = x_pos.repeat(1, w)
 
@@ -175,6 +173,9 @@ class MapillaryDatasetPerceiver(MapillaryDatasetBase):
         pe = torch.cat([pe, pe_empty], dim=0)
         return (im, pe), anno
 
+
+def make_dataloader(dataset, batch_size, train):
+    return DataLoader(dataset, batch_size=batch_size, shuffle=train, drop_last=train, **_DATALOADER_KWARGS)
 
 def get_perceiver_dataloader(batch_size: int, train: bool, max_size: int):
     dset = MapillaryDatasetPerceiver(max_size=max_size, train=train)
