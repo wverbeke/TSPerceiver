@@ -117,6 +117,7 @@ class CNNClassifier(nn.Module):
         self._softmax = nn.Softmax(dim=1) if softmax else lambda x: x
 
     def forward(self, x):
+        x, h, w = x
         x = self._body(x)
         x = self._global_pool(x)
         x = self._dense(x)

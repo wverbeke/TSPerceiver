@@ -181,8 +181,7 @@ def make_dataloader(dataset, batch_size, train):
 
 def get_perceiver_dataloader(batch_size: int, train: bool, max_size: int):
     dset = MapillaryDatasetPerceiver(max_size=max_size, train=train)
-    return DataLoader(dset, batch_size=batch_size, shuffle=train, drop_last=train, **_DATALOADER_KWARGS)
-    #return DataLoader(dset, batch_size=batch_size, **_DATALOADER_KWARGS)#, shuffle=train, drop_last=train, *_DATALOADER_KWARGS)
+    return make_dataloader(dataset=dset, batch_size=batch_size, train=train)
 
 
 class MapillaryDatasetCNN(MapillaryDatasetBase):
@@ -210,7 +209,7 @@ class MapillaryDatasetCNN(MapillaryDatasetBase):
 
 def get_cnn_dataloader(batch_size: int, train: bool, im_size: Tuple):
     dset = MapillaryDatasetCNN(im_size=im_size, train=train)
-    return DataLoader(dset, batch_size=batch_size, shuffle=train, drop_last=train, *_DATALOADER_KWARGS)
+    return make_dataloader(dataset=dset, batch_size=batch_size, train=train)
 
 
 if __name__ == "__main__":

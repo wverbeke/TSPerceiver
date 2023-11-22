@@ -65,6 +65,13 @@ def train_resnet(train_loader, eval_loader):
 
 
 if __name__ == "__main__":
-    train_loader = get_perceiver_dataloader(batch_size=16, train=True, max_size=40000)
-    eval_loader = get_perceiver_dataloader(batch_size=16, train=False, max_size=40000)
-    train_perceiver(train_loader, eval_loader)
+    # Avoid dataloading crash
+    torch.multiprocessing.set_sharing_strategy('file_system')
+
+    perceiver_train_loader = get_perceiver_dataloader(batch_size=24, train=True, max_size=40000)
+    perceiver_eval_loader = get_perceiver_dataloader(batch_size=24, train=False, max_size=40000)
+    train_perceiver(perceiver_train_loader, perceiver_eval_loader)
+
+    cnn_train_loader = get_cnn_dataloader(batch_size=24, train=True, im_size=(56, 56))
+    cnn_eval_loader = get_cnn_dataloader(batch_size=24, train=False, im_size=(56, 56))
+    train_resnet(cnn_train_loader, cnn_eval_loader)
