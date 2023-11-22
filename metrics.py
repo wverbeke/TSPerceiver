@@ -15,19 +15,19 @@ def is_tiny(h, w):
     return h*w <= TINY
 
 def is_small(h, w):
-    return np.logical_and(h*w <= SMALL, h*w > TINY)
+    return torch.logical_and(h*w <= SMALL, h*w > TINY)
 
 def is_medium(h, w):
-    return np.logical_and(h*w <= MEDIUM, h*w > SMALL)
+    return torch.logical_and(h*w <= MEDIUM, h*w > SMALL)
 
 def is_large(h, w):
-    return np.logical_and(h*w <= LARGE, h*w > MEDIUM)
+    return torch.logical_and(h*w <= LARGE, h*w > MEDIUM)
 
 def is_huge(h, w):
     return h*w > LARGE
 
 def is_odd(h, w):
-    return np.logical_or(h/w < ODD_RATIO, w/h < ODD_RATIO)
+    return torch.logical_or(h/w < ODD_RATIO, w/h < ODD_RATIO)
 
 
 
@@ -72,7 +72,6 @@ def f1(pr, re):
 
 def compute_metrics(pred_classes, labels):
     cm = confusion_matrix(pred_classes, labels)
-    print("cm = ", cm)
     n_total = np.sum(cm)
     total_precision = 0
     total_recall = 0
@@ -100,6 +99,11 @@ def compute_all_metrics(pred_classes, true_classes, heights, widths):
     heights = torch.cat(heights).cpu()
     widths = torch.cat(widths).cpu()
 
+    print("pred_classes.shape = ", pred_classes.shape)
+    print("true_classes.shape = ", true_classes.shape)
+    print("heights.shape = ", heights.shape)
+    print("widths.shape = ", widths.shape)
+
     # Output dict
     out = {}
 
@@ -125,6 +129,10 @@ def compute_all_metrics(pred_classes, true_classes, heights, widths):
     # Huge 
     huge_mask = is_huge(heights, widths)
     add_metrics_to_dict(out, pred_classes[huge_mask], true_classes[huge_mask], "huge")
+
+    # Odd
+    odd_mask = is_odd(heights, widths)
+    add_metrics_to_dict(out, pred_classes[odd_mask], true_classes[odd_mask], "odd")
 
     return out
 

@@ -10,6 +10,7 @@ from torch import nn
 
 from mapillary_data_loader.load_mapillary import MapillaryDatasetPerceiver, MapillaryDatasetCNN
 from perceiver import Perceiver, PerceiverClassifier
+from metrics import compute_all_metrics
 
 class ModelTrainer:
     """Class collecting all the functionality to train and evaluate a neural network model."""
@@ -33,7 +34,7 @@ class ModelTrainer:
 
     def forward_pass(self, x_batch, y_batch):
         """Forward pass and loss calculation."""
-        if isinstance(x_batch, List):
+        if len(x_batch) == 4:
             x, pe, h, w = x_batch
             x_batch = (x.to("cuda"), pe.to("cuda"), h, w)
         else:
@@ -78,6 +79,8 @@ class ModelTrainer:
             loss = self.train_step(x_batch, y_batch)
             total_train_loss += loss
             num_batches += 1
+            if num_batches > 2:
+                break
         return (total_train_loss/num_batches)
 
     @torch.no_grad()
@@ -96,7 +99,9 @@ class ModelTrainer:
         total_eval_loss = 0
         predicted_classes = []
         true_classes = []
-        sizes = []
+        heights = []
+        widths = []
+        n_batch = 0
         with torch.no_grad():
             count = 0
             for x_batch, y_batch in tqdm(dataloader):
@@ -107,11 +112,19 @@ class ModelTrainer:
                 # Aggregate predictions for metric calculation
                 predicted_classes.append(torch.argmax(pred, dim=-1))
                 true_classes.append(y_batch)
-                heights.append(x_batch[0])
-                widths.append(x_batch[1])
+                
+                # Extract heights and widths.
+                height_index = 2 if len(x_batch) == 4 else 1
+                width_index = 3 if len(x_batch) == 4 else 2
+                heights.append(x_batch[height_index])
+                widths.append(x_batch[width_index])
+                n_batch += 1
+                if n_batch > 2:
+                    break
 
         avg_eval_loss = total_eval_loss/num_samples
-        return avg_eval_loss
+        metric_dict = compute_all_metrics(predicted_classes, true_classes, heights, widths)    
+        return avg_eval_loss, metric_dict
 
     def train_and_eval_epoch(self, train_loader, eval_loader):
         """Do a training and evaluation epoch and print information."""
@@ -121,10 +134,11 @@ class ModelTrainer:
         train_loss = self.train_epoch(train_loader)
         print(f"Train loss = {train_loss:.3f}")
         print("Eval:")
-        eval_loss = self.eval_epoch(eval_loader)
+        eval_loss, eval_metrics = self.eval_epoch(eval_loader)
         print(f"Eval loss = {eval_loss:.3f}")
+        print(f"Eval metrics = {eval_metrics}")
         self._epoch_counter += 1
-        return eval_loss
+        return eval_loss, eval_metrics
 
 
 

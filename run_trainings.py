@@ -1,4 +1,6 @@
 import torch
+import os
+import json
 from torch import nn
 
 from mapillary_data_loader.load_mapillary import get_perceiver_dataloader, get_cnn_dataloader
@@ -10,16 +12,30 @@ from cnns import Resnet18, CNNClassifier
 
 def train_model(train_loader, eval_loader, model, optimizer, output_path):
     """Train a neural network model until the convergence criterion is achieved."""
+    # Make sure the output folder exists.
+    os.makedirs(output_path, exist_ok=True)
+
     # Train the model until the eval loss stops improving for more than 7 epochs.
     trainer = ModelTrainer(nn.CrossEntropyLoss(), optimizer, model)
     callback = EarlyStopper(tolerance=7)
+    metric_list = []
     while True:
-        eval_loss = trainer.train_and_eval_epoch(train_loader, eval_loader)
+        eval_loss, eval_metrics = trainer.train_and_eval_epoch(train_loader, eval_loader)
         callback_result = callback(eval_loss)
+        metric_list.append(eval_metrics)
         if callback_result == CallbackResult.NEW_BEST:
 
             # Save the model.
-            torch.save(model.state_dict(), output_path)
+            checkpoint = {
+                "model": model.state_dict(),
+                "optimizer": optimizer.state_dict(),
+            }
+            torch.save(checkpoint, output_path + "model_checkpoint.pt")
+
+            # Save the metrics
+            with open(output_path + "metrics.json", "w") as f:
+                json.dump(metric_list, f)
+
         elif callback_result == CallbackResult.STOP:
             break
 
@@ -37,7 +53,7 @@ def train_perceiver(train_loader, eval_loader):
     model = PerceiverClassifier(backbone, n_classes)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-5)
 
-    return train_model(train_loader, eval_loader, model, optimizer, "perceiver_model_checkpoints")
+    return train_model(train_loader, eval_loader, model, optimizer, "perceiver_out/")
 
 
 def train_resnet(train_loader, eval_loader):
@@ -45,7 +61,7 @@ def train_resnet(train_loader, eval_loader):
     n_classes = len(mapillary_class_list())
     model = CNNClassifier(backbone, n_classes)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-    return train_model(train_loader, eval_loader, model, optimizer, "perceiver_model_checkpoints")
+    return train_model(train_loader, eval_loader, model, optimizer, "resnet_out/")
 
 
 if __name__ == "__main__":
