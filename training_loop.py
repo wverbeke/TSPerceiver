@@ -13,7 +13,7 @@ from perceiver import Perceiver, PerceiverClassifier
 
 class ModelTrainer:
     """Class collecting all the functionality to train and evaluate a neural network model."""
-    def __init__(self, loss_fn: Callable, optimizer: Callable, model: nn.Module):
+    def __init__(self, loss_fn: Callable, optimizer: Callable, model: nn.Module, amp=True):
         self._loss_fn = loss_fn
         self._optimizer = optimizer
         self._model = model.cuda()
@@ -21,9 +21,17 @@ class ModelTrainer:
 
         # Mixed precision training
         self._scaler = torch.cuda.amp.GradScaler()
+        self.train_step = self.train_step_amp if amp else self.train_step_fp
+        if amp:
+            def _foward_pass_amp(x_batch, y_batch):
+                with torch.autocast(device_type="cuda", dtype=torch.float16):
+                    return self.forward_pass(x_batch, y_batch)
+            self._forward_pass = _foward_pass_amp
+        else:
+            self._forward_pass = forward_pass
 
 
-    def _forward_pass(self, x_batch, y_batch):
+    def forward_pass(self, x_batch, y_batch):
         """Forward pass and loss calculation."""
         if isinstance(x_batch, List):
             x, pe = x_batch
@@ -36,19 +44,29 @@ class ModelTrainer:
         loss = self._loss_fn(pred, y_batch)
         return loss
 
-    def train_step(self, x_batch, y_batch):
+    def train_step_amp(self, x_batch, y_batch):
         """Apply a single training batch."""
-        with torch.autocast(device_type="cuda", dtype=torch.float16):
-            loss = self._forward_pass(x_batch, y_batch)
+        loss = self._forward_pass(x_batch, y_batch)
 
         # Backpropagation
         self._scaler.scale(loss).backward()
         self._scaler.unscale_(self._optimizer)
+        torch.nn.utils.clip_grad_norm_(self._model.parameters(), 1.0)
         self._scaler.step(self._optimizer)
         self._scaler.update()
         self._optimizer.zero_grad(set_to_none=True)
 
         return loss
+
+    def train_step_fp(self, x_batch, y_batch):
+        loss = self._forward_pass(x_batch, y_batch)
+
+        # Backpropagation
+        self._optimizer.zero_grad()
+        loss.backward()
+        self._optimizer.step()
+        return loss
+
 
     def train_epoch(self, dataloader):
         """A single training epoch."""
@@ -76,6 +94,7 @@ class ModelTrainer:
         num_samples = 0
         total_eval_loss = 0
         with torch.no_grad():
+            count = 0
             for x_batch, y_batch in tqdm(dataloader):
                 loss = self.eval_step(x_batch, y_batch)
                 num_samples += len(y_batch)

@@ -4,7 +4,8 @@ from torch import nn
 from mapillary_data_loader.load_mapillary import get_perceiver_dataloader, get_cnn_dataloader
 from mapillary_data_loader.make_class_list import mapillary_class_list
 from perceiver import PerceiverClassifier, Perceiver
-from training_loop import ModelTrainer, EarlyStopper
+from training_loop import ModelTrainer, EarlyStopper, CallbackResult
+from cnns import Resnet18, CNNClassifier
 
 
 def train_model(train_loader, eval_loader, model, optimizer, output_path):
@@ -23,7 +24,7 @@ def train_model(train_loader, eval_loader, model, optimizer, output_path):
             break
 
 
-def train_perceiver():
+def train_perceiver(train_loader, eval_loader):
     backbone = Perceiver(
         in_channels=3,
         n_latent=128, #512 in OG paper
@@ -34,12 +35,20 @@ def train_perceiver():
     )
     n_classes = len(mapillary_class_list())
     model = PerceiverClassifier(backbone, n_classes)
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-5)
 
-    train_loader = get_perceiver_dataloader(batch_size=42, train=True, max_size=40000)
-    eval_loader = get_perceiver_dataloader(batch_size=42, train=False, max_size=40000)
+    return train_model(train_loader, eval_loader, model, optimizer, "perceiver_model_checkpoints")
+
+
+def train_resnet(train_loader, eval_loader):
+    backbone = Resnet18(in_channels=3, channel_multiplier=1)
+    n_classes = len(mapillary_class_list())
+    model = CNNClassifier(backbone, n_classes)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
     return train_model(train_loader, eval_loader, model, optimizer, "perceiver_model_checkpoints")
 
 
 if __name__ == "__main__":
-    train_perceiver()
+    train_loader = get_perceiver_dataloader(batch_size=16, train=True, max_size=40000)
+    eval_loader = get_perceiver_dataloader(batch_size=16, train=False, max_size=40000)
+    train_perceiver(train_loader, eval_loader)
