@@ -236,7 +236,7 @@ class Perceiver(nn.Module):
         self._transformer_2 = nn.Sequential(*[TransformerBlock(in_channels=dim_latent, n_heads=n_heads_self, dropout_p=0) for _ in range(n_self_per_cross)])
 
     def forward(self, x):
-        byte_array, pe = x
+        byte_array, pe, _, _ = x
         batch_size = byte_array.shape[0]
 
         # Concat byte array with positional encoding.

@@ -149,29 +149,31 @@ class MapillaryDatasetPerceiver(MapillaryDatasetBase):
         The output looks like:  (im, h, w), annotation
         """
         im, anno = super().__getitem__(index)
-        im, h, w = self._process_im(im)
+        
+        orig_h, orig_w = im.shape[1:]
+
+        im, sh, sw = self._process_im(im)
 
         # TODO Check if we want to do this reshape in the model instead.
         # The channel dimension must be last for running the transformer.
         im = torch.transpose(im, 0, 1)
 
-
         # Generate positional encodings here since arange can not be vectorized on GPU in the model
         # Positional encoding.
-        y_pos = torch.arange(w, dtype=torch.float32).unsqueeze(0)
-        x_pos = torch.arange(h, dtype=torch.float32).unsqueeze(1)
-        y_pos = y_pos.repeat(h, 1)
-        x_pos = x_pos.repeat(1, w)
+        y_pos = torch.arange(sw, dtype=torch.float32).unsqueeze(0)
+        x_pos = torch.arange(sh, dtype=torch.float32).unsqueeze(1)
+        y_pos = y_pos.repeat(sh, 1)
+        x_pos = x_pos.repeat(1, sw)
 
-        y_pos = y_pos.view(h*w, 1)
-        x_pos = x_pos.view(h*w, 1)
+        y_pos = y_pos.view(sh*sw, 1)
+        x_pos = x_pos.view(sh*sw, 1)
 
         pe = torch.cat([x_pos, y_pos], dim=-1)
 
-        n_empty = im.shape[0] - h*w
+        n_empty = im.shape[0] - sh*sw
         pe_empty =  torch.zeros(n_empty, 2)
         pe = torch.cat([pe, pe_empty], dim=0)
-        return (im, pe), anno
+        return (im, pe, orig_h, orig_w), anno
 
 
 def make_dataloader(dataset, batch_size, train):
@@ -203,7 +205,8 @@ class MapillaryDatasetCNN(MapillaryDatasetBase):
     def __getitem__(self, index):
         """Load an image and resize it."""
         im, anno = super().__getitem__(index)
-        return self._resize_op(im), anno
+        h, w = im.shape[1:]
+        return (self._resize_op(im), h, w), anno
 
 def get_cnn_dataloader(batch_size: int, train: bool, im_size: Tuple):
     dset = MapillaryDatasetCNN(im_size=im_size, train=train)

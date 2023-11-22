@@ -34,19 +34,20 @@ class ModelTrainer:
     def forward_pass(self, x_batch, y_batch):
         """Forward pass and loss calculation."""
         if isinstance(x_batch, List):
-            x, pe = x_batch
-            x_batch = (x.to("cuda"), pe.to("cuda"))
+            x, pe, h, w = x_batch
+            x_batch = (x.to("cuda"), pe.to("cuda"), h, w)
         else:
-            x_batch = x_batch.to("cuda")
+            x, h, w = x_batch
+            x_batch = (x.to("cuda"), h, w)
         y_batch = y_batch.to("cuda")
 
         pred = self._model(x_batch)
         loss = self._loss_fn(pred, y_batch)
-        return loss
+        return pred, loss
 
     def train_step_amp(self, x_batch, y_batch):
         """Apply a single training batch."""
-        loss = self._forward_pass(x_batch, y_batch)
+        _, loss = self._forward_pass(x_batch, y_batch)
 
         # Backpropagation
         self._scaler.scale(loss).backward()
@@ -93,12 +94,21 @@ class ModelTrainer:
         # number of individual samples.
         num_samples = 0
         total_eval_loss = 0
+        predicted_classes = []
+        true_classes = []
+        sizes = []
         with torch.no_grad():
             count = 0
             for x_batch, y_batch in tqdm(dataloader):
-                loss = self.eval_step(x_batch, y_batch)
+                pred, loss = self.eval_step(x_batch, y_batch)
                 num_samples += len(y_batch)
                 total_eval_loss += loss.item()*len(y_batch)
+
+                # Aggregate predictions for metric calculation
+                predicted_classes.append(torch.argmax(pred, dim=-1))
+                true_classes.append(y_batch)
+                heights.append(x_batch[0])
+                widths.append(x_batch[1])
 
         avg_eval_loss = total_eval_loss/num_samples
         return avg_eval_loss
