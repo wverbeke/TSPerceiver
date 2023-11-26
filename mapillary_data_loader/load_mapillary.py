@@ -21,6 +21,7 @@ from torchvision import datasets, transforms
 import matplotlib.pyplot as plt
 
 from random_fractional_crop import RandomFractionalCrop
+from torch_list import TorchList
 
 from mapillary_data_loader.make_class_list import mapillary_class_list
 from mapillary_data_loader.preproc_mapillary import TRAIN_ANNOTATION_LIST_PATH, EVAL_ANNOTATION_LIST_PATH, read_annotation
@@ -33,7 +34,7 @@ _TRAIN_TRANSFORMS = transforms.Compose([
     RandomFractionalCrop(min_crop_scale=0.7, max_crop_scale=0.9, seed=69),
 ])
 
-_DATALOADER_KWARGS = {"num_workers": os.cpu_count(), "prefetch_factor": 4}
+_DATALOADER_KWARGS = {"num_workers": os.cpu_count(), "prefetch_factor": 2}
 
 class MapillaryDatasetBase(Dataset):
     """Shared operations between CNN and Perceiver dataloader.
@@ -50,8 +51,8 @@ class MapillaryDatasetBase(Dataset):
         else:
             annotation_dict = read_annotation(EVAL_ANNOTATION_LIST_PATH)
         self._train = train
-        self._image_paths = []
-        self._annotations = []
+        image_paths = []
+        annotations = []
 
         # The class list is made from the set of annotations if it does not already exist.
         class_list = mapillary_class_list()
@@ -62,8 +63,10 @@ class MapillaryDatasetBase(Dataset):
             # The annotation is stored as a list of size 1.
             # TODO: Fix this.
             class_name = class_name[0]
-            self._image_paths.append(image_path)
-            self._annotations.append(class_list.index(class_name))
+            image_paths.append(image_path)
+            annotations.append(class_list.index(class_name))
+        self._image_paths = TorchList(image_paths)
+        self._annotations = TorchList(annotations)
 
     def __len__(self):
         return len(self._image_paths)
@@ -71,16 +74,18 @@ class MapillaryDatasetBase(Dataset):
     def __getitem__(self, index):
 
         # Read and augment the image.
-        image = Image.open(self._image_paths[index]).convert("RGB")
-        if self._train:
-            image = _TRAIN_TRANSFORMS(image)
-        else:
-            image = _EVAL_TRANSFORMS(image)
+        with Image.open(self._image_paths[index]) as orig_image:
+            orig_image = orig_image.convert("RGB")
 
-        # Some small images will not be contiguous when reaching this point, and this can cause
-        # trouble with view operations later on.
-        image = image.contiguous()
-        return image, self._annotations[index]
+            if self._train:
+                image = _TRAIN_TRANSFORMS(orig_image)
+            else:
+                image = _EVAL_TRANSFORMS(orig_image)
+
+            # Some small images will not be contiguous when reaching this point, and this can cause
+            # trouble with view operations later on.
+            image = image.contiguous()
+            return image, self._annotations[index]
 
 
 def _resize_im(im: torch.Tensor, out_size: Tuple):

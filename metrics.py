@@ -33,8 +33,7 @@ def is_odd(h, w):
 
 def confusion_matrix(pred_classes, labels):
     cm_computer = MulticlassConfusionMatrix(num_classes=len(mapillary_class_list()))
-    cm = cm_computer(pred_classes, labels).numpy()
-    return np.transpose(cm)
+    return cm_computer(pred_classes, labels).numpy()
 
 
 def n_true_positives(cm):
@@ -99,11 +98,6 @@ def compute_all_metrics(pred_classes, true_classes, heights, widths):
     heights = torch.cat(heights).cpu()
     widths = torch.cat(widths).cpu()
 
-    print("pred_classes.shape = ", pred_classes.shape)
-    print("true_classes.shape = ", true_classes.shape)
-    print("heights.shape = ", heights.shape)
-    print("widths.shape = ", widths.shape)
-
     # Output dict
     out = {}
 
@@ -138,11 +132,36 @@ def compute_all_metrics(pred_classes, true_classes, heights, widths):
 
 
 if __name__ == "__main__":
-    heights = [torch.arange(100), torch.arange(100)]
-    widths = heights
-    a = torch.rand(200, len(mapillary_class_list()))
-    pred_classes = [torch.argmax(a[:100], dim=-1), torch.argmax(a[100:], dim=-1)]
-    true_classes = pred_classes
+    #heights = [torch.arange(100), torch.arange(100)]
+    #widths = heights
+    #a = torch.rand(200, len(mapillary_class_list()))
+    #pred_classes = [torch.argmax(a[:100], dim=-1), torch.argmax(a[100:], dim=-1)]
+    #true_classes = pred_classes
 
-    out = compute_all_metrics(pred_classes, true_classes, heights, widths)
-    print(out)
+    #out = compute_all_metrics(pred_classes, true_classes, heights, widths)
+    #print(out)
+    pred_classes = torch.tensor([0]*20 + [0]*20 + [0]*20 + [1]*20 + [2]*20)
+    true_classes = torch.tensor([0]*20 + [1]*20 + [2]*60)
+    heights = torch.zeros(100)
+    widths = torch.zeros(100)
+    print(compute_all_metrics(pred_classes, true_classes, heights, widths))
+
+    cm = np.array([[20, 0, 0],
+                   [20, 0, 0],
+                   [20, 20, 20]])
+    print(precision_recall(cm, 0))
+
+    n_total = np.sum(cm)
+    total_precision = 0
+    total_recall = 0
+    total_f1 = 0
+    for cls_index in range(cm.shape[0]):
+        n_class = np.sum(cm[cls_index])
+        cls_w = divide_safe(n_class, n_total)
+        pr, re = precision_recall(cm, cls_index)
+        f1_score = f1(pr, re)
+        total_precision += cls_w*pr
+        total_recall += cls_w*re
+        total_f1 += cls_w*f1_score
+    print(total_precision, total_recall, total_f1)
+

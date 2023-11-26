@@ -21,6 +21,7 @@ def train_model(train_loader, eval_loader, model, optimizer, output_path):
     metric_list = []
     while True:
         eval_loss, eval_metrics = trainer.train_and_eval_epoch(train_loader, eval_loader)
+        eval_metrics["loss"] = eval_loss
         callback_result = callback(eval_loss)
         metric_list.append(eval_metrics)
         if callback_result == CallbackResult.NEW_BEST:
@@ -67,11 +68,12 @@ def train_resnet(train_loader, eval_loader):
 if __name__ == "__main__":
     # Avoid dataloading crash
     torch.multiprocessing.set_sharing_strategy('file_system')
+    torch.cuda.empty_cache()
 
-    perceiver_train_loader = get_perceiver_dataloader(batch_size=24, train=True, max_size=40000)
-    perceiver_eval_loader = get_perceiver_dataloader(batch_size=24, train=False, max_size=40000)
-    train_perceiver(perceiver_train_loader, perceiver_eval_loader)
+    #perceiver_train_loader = get_perceiver_dataloader(batch_size=20, train=True, max_size=40000)
+    #perceiver_eval_loader = get_perceiver_dataloader(batch_size=20, train=False, max_size=40000)
+    #train_perceiver(perceiver_train_loader, perceiver_eval_loader)
 
-    cnn_train_loader = get_cnn_dataloader(batch_size=24, train=True, im_size=(56, 56))
-    cnn_eval_loader = get_cnn_dataloader(batch_size=24, train=False, im_size=(56, 56))
+    cnn_train_loader = get_cnn_dataloader(batch_size=20, train=True, im_size=(56, 56))
+    cnn_eval_loader = get_cnn_dataloader(batch_size=20, train=False, im_size=(56, 56))
     train_resnet(cnn_train_loader, cnn_eval_loader)
