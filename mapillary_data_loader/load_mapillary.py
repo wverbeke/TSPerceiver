@@ -201,16 +201,13 @@ class MapillaryDatasetCNN(MapillaryDatasetBase):
             im_size: Output image size.
         """
         super().__init__(**kwargs)
-        def _resize_op(im):
-            return _resize_im(im, im_size)
-
-        self._resize_op = _resize_op
+        self._im_size = im_size 
 
     def __getitem__(self, index):
         """Load an image and resize it."""
         im, anno = super().__getitem__(index)
         h, w = im.shape[1:]
-        return (self._resize_op(im), h, w), anno
+        return (_resize_im(im, self._im_size), h, w), anno
 
 def get_cnn_dataloader(batch_size: int, train: bool, im_size: Tuple):
     dset = MapillaryDatasetCNN(im_size=im_size, train=train)

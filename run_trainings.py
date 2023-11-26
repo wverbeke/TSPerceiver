@@ -2,6 +2,7 @@ import torch
 import os
 import json
 from torch import nn
+import multiprocessing as mp
 
 from mapillary_data_loader.load_mapillary import get_perceiver_dataloader, get_cnn_dataloader
 from mapillary_data_loader.make_class_list import mapillary_class_list
@@ -32,6 +33,7 @@ def train_model(train_loader, eval_loader, model, optimizer, output_path):
                 "optimizer": optimizer.state_dict(),
             }
             torch.save(checkpoint, output_path + "model_checkpoint.pt")
+            del checkpoint
 
             # Save the metrics
             with open(output_path + "metrics.json", "w") as f:
@@ -66,8 +68,14 @@ def train_resnet(train_loader, eval_loader):
 
 
 if __name__ == "__main__":
-    # Avoid dataloading crash
+    # Avoid dataloading crash.
     torch.multiprocessing.set_sharing_strategy('file_system')
+
+    #START_METHOD = "forkserver"
+    #mp.set_start_method(START_METHOD)
+    #mp.set_forkserver_preload(["torch", "torchvision"])
+
+    # Empty GPU memory.
     torch.cuda.empty_cache()
 
     #perceiver_train_loader = get_perceiver_dataloader(batch_size=20, train=True, max_size=40000)
