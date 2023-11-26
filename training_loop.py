@@ -77,7 +77,9 @@ class ModelTrainer:
         self._model.train()
         for x_batch, y_batch in tqdm(dataloader):
             loss = self.train_step(x_batch, y_batch)
-            total_train_loss += loss
+
+            # Call item to avoid having the pytorch loss with gradients on cpu.
+            total_train_loss += loss.item()
             num_batches += 1
         return (total_train_loss/num_batches)
 
