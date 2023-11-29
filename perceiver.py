@@ -65,8 +65,6 @@ class MultiHeadAttention(nn.Module):
         values = values.view(B, NKV, self._n_heads, self._value_head_dim).transpose(1, 2)
 
         # Torch implementation of flash attention.
-        # is_causal is crucial here, since otherwise the model will be able to look at tokens into
-        # the future and cheat.
         out = torch.nn.functional.scaled_dot_product_attention(queries, keys, values, attn_mask=None, dropout_p=self._dropout_p if self.training else 0, is_causal=False)
 
         # Concatenate the channels from the multiple heads before applying the final linear
@@ -194,18 +192,24 @@ class CrossAttentionBlock(nn.Module):
         return latent
 
 
-def fourier_encode(x, num_bands, max_freq):
+def normalize_pixel_coords(x: torch.Tensor) -> torch.Tensor:
+    """Normalize pixel coordinates."""
+    h = torch.max(x[:, :, 0], dim=1)[0]
+    w = torch.max(x[:, :, 1], dim=1)[0]
+    x[:, :, 0] -= h.unsqueeze(1)
+    x[:, :, 0] /= 0.5 * h.unsqueeze(1)
+
+    x[:, :, 1] -= w.unsqueeze(1)
+    x[:, :, 1] /= 0.5 * w.unsqueeze(1)
+    return x
+
+
+def fourier_encode(x: torch.Tensor, num_bands: int, max_freq: int) -> torch.Tensor:
     """Fourier encode position tensors.
     
     Input has shape B, H*W, 2
     """
-    h = torch.max(x[:, :, 0], dim=1)[0]
-    w = torch.max(x[:, :, 1], dim=1)[0]
-
-    x -= x/2
-    
-    x[:, :, 0] /= 0.5 * h.unsqueeze(1)
-    x[:, :, 1] /= 0.5 * w.unsqueeze(1)
+    x = normalize_pixel_coords(x)
 
     freqs = torch.linspace(1.0, max_freq/2.0, num_bands, device=x.device)
 
@@ -220,38 +224,91 @@ def fourier_encode(x, num_bands, max_freq):
 
 
 
+
 class Perceiver(nn.Module):
 
-    def __init__(self, in_channels, n_latent, dim_latent, n_heads_cross = 1, n_heads_self = 8, n_self_per_cross=6, num_freq_bands=64, max_freq=300):
+    def __init__(self,
+            in_channels,
+            n_latent,
+            dim_latent,
+            n_heads_cross=1,
+            n_heads_self=8,
+            n_self_per_cross=6,
+            n_blocks=8,
+            share_weights=True,
+            fourier_pe=True,
+            num_freq_bands=64,
+            max_freq=300
+        ):
         super().__init__()
+
+        # Latent array
         self._latent = nn.Parameter(torch.randn(n_latent, dim_latent))
-        self._num_freq_bands = num_freq_bands
-        self._max_freq = max_freq
 
+        # Properties needed for fourier encoding:
+        if fourier_pe:
 
-        self._cross_attend_1 = CrossAttentionBlock(latent_channels=dim_latent, data_channels=in_channels + 2*(2*num_freq_bands + 1), n_heads=n_heads_cross, dropout_p=0)
+            # Dimensionality of positional encodings.
+            dim_pe = 2*(2*num_freq_bands + 1)
+            self._pos_encode_fn = lambda pe: fourier_encode(pe, num_bands=num_freq_bands, max_freq=max_freq)
+        else:
+            dim_pe = 2
+            self._pos_encode_fn = lambda pe: normalize_pixel_coords(pe)
 
-        self._transformer_1 = nn.Sequential(*[TransformerBlock(in_channels=dim_latent, n_heads=n_heads_self, dropout_p=0) for _ in range(n_self_per_cross)])
-        self._cross_attend_2 = CrossAttentionBlock(latent_channels=dim_latent, data_channels=in_channels +  2*(2*num_freq_bands + 1), n_heads=n_heads_cross, dropout_p=0)
-        self._transformer_2 = nn.Sequential(*[TransformerBlock(in_channels=dim_latent, n_heads=n_heads_self, dropout_p=0) for _ in range(n_self_per_cross)])
+        # Build the cross- and self-attention blocks.
+        def _build_cross_att():
+            return CrossAttentionBlock(
+                latent_channels=dim_latent,
+                data_channels=in_channels + dim_pe,
+                n_heads=n_heads_cross,
+                dropout_p=0
+            )
+
+        def _build_transformer():
+            return nn.Sequential(
+                *[TransformerBlock(
+                    in_channels=dim_latent,
+                    n_heads=n_heads_self,
+                    dropout_p=0
+                ) for _ in range(n_self_per_cross)]
+            )
+
+        self._cross_attend_blocks = nn.ModuleList([_build_cross_att()])
+        self._transformer_blocks = nn.ModuleList([_build_transformer()])
+        if share_weights:
+            cross_att = _build_cross_att()
+            transf = _build_transformer()
+            for _ in range(n_blocks - 1):
+                self._cross_attend_blocks.append(cross_att)
+                self._transformer_blocks.append(transf)
+        else:
+            for _ in range(n_blocks - 1):
+                self._cross_attend_blocks.append(_build_cross_att())
+                self._transformer_blocks.append(_build_transformer())
+        
+
+        #self._cross_attend_1 = CrossAttentionBlock(latent_channels=dim_latent, data_channels=in_channels + dim_pe, n_heads=n_heads_cross, dropout_p=0)
+        #self._transformer_1 = nn.Sequential(*[TransformerBlock(in_channels=dim_latent, n_heads=n_heads_self, dropout_p=0) for _ in range(n_self_per_cross)])
+        #self._cross_attend_2 = CrossAttentionBlock(latent_channels=dim_latent, data_channels=in_channels +  dim_pe, n_heads=n_heads_cross, dropout_p=0)
+        #self._transformer_2 = nn.Sequential(*[TransformerBlock(in_channels=dim_latent, n_heads=n_heads_self, dropout_p=0) for _ in range(n_self_per_cross)])
 
     def forward(self, x):
         byte_array, pe, _, _ = x
         batch_size = byte_array.shape[0]
 
         # Concat byte array with positional encoding.
-        pe = fourier_encode(pe, num_bands=self._num_freq_bands, max_freq=self._max_freq)
+        pe = self._pos_encode_fn(pe)
         byte_array = torch.cat([byte_array, pe], axis=-1)
 
         # Repeat the latent array along the batch axis.
         latent = self._latent.repeat(batch_size, 1, 1)
 
         # Cross and self attention.
-        x = self._cross_attend_1(latent, byte_array)
-        x = self._transformer_1(x)
-        for _ in range(7):
-            x = self._cross_attend_2(x, byte_array)
-            x = self._transformer_2(x)
+        x = self._cross_attend_blocks[0](latent, byte_array)
+        x = self._transformer_blocks[0](x)
+        for i, ca in enumerate(self._cross_attend_blocks):
+            x = ca(x, byte_array)
+            x = self._transformer_blocks[i](x)
         return x
 
 class PerceiverClassifier(nn.Module):
@@ -270,7 +327,6 @@ class PerceiverClassifier(nn.Module):
 
 
 if __name__ == "__main__":
-
     x = torch.rand(2, 100, 2)
     fourier_encode(x, 4, 4)
     #q = torch.rand(2, 100, 10)

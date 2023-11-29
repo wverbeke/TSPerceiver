@@ -30,22 +30,27 @@ def is_odd(h, w):
     return torch.logical_or(h/w < ODD_RATIO, w/h < ODD_RATIO)
 
 
-
 def confusion_matrix(pred_classes, labels):
     cm_computer = MulticlassConfusionMatrix(num_classes=len(mapillary_class_list()))
     return cm_computer(pred_classes, labels).numpy()
 
 
 def n_true_positives(cm):
-    return np.trace(cm)
+    return torch.trace(cm)
 
 def tp(cm, cls_index):
     return cm[cls_index, cls_index]
 
 def fn(cm, cls_index):
+    #neg = cm[cls_index]
+    #neg = torch.cat(neg[:cls_index], neg[cls_index + 1:])
+    #return torch.sum(neg)
     return np.sum(np.delete(cm[cls_index], cls_index))
 
 def fp(cm, cls_index):
+    #pos = cm[:, cls_index]
+    #pos = torch.cat(pos[: cls_index], pos[cls_index + 1:])
+    #return torch.sum(pos)
     return np.sum(np.delete(cm, cls_index, axis=0)[:, cls_index])
 
 def divide_safe(numerator, denominator):
