@@ -134,7 +134,7 @@ class ModelTrainer:
         print(f"Eval loss = {eval_loss:.3f}")
         print(f"Eval metrics = {eval_metrics}")
         self._epoch_counter += 1
-        return eval_loss, eval_metrics
+        return train_loss, eval_loss, eval_metrics
 
 
 

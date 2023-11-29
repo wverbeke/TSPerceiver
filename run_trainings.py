@@ -21,8 +21,9 @@ def train_model(train_loader, eval_loader, model, optimizer, output_path):
     callback = EarlyStopper(tolerance=7)
     metric_list = []
     while True:
-        eval_loss, eval_metrics = trainer.train_and_eval_epoch(train_loader, eval_loader)
-        eval_metrics["loss"] = eval_loss
+        train_loss, eval_loss, eval_metrics = trainer.train_and_eval_epoch(train_loader, eval_loader)
+        eval_metrics["train_loss"] = train_loss
+        eval_metrics["eval_loss"] = eval_loss
         callback_result = callback(eval_loss)
         metric_list.append(eval_metrics)
         if callback_result == CallbackResult.NEW_BEST:
@@ -48,18 +49,18 @@ def train_perceiver(train_loader, eval_loader):
         in_channels=3,
         n_latent=128, #512 in OG paper
         dim_latent=256, #1024 in OG paper
-        n_heads_cross=1,
-        n_heads_self=8,
-        n_self_per_cross=6, # 6 In OG paper
-        n_blocks=6,
+        n_heads_cross=1, #1 in OG paper
+        n_heads_self=8, # 8 in OG paper
+        n_self_per_cross=4, # 6 In OG paper
+        n_blocks=4, # 6 in OG paper
         share_weights=True,
         fourier_pe=True,
-        num_freq_bands=4,
+        num_freq_bands=4, # 64 in OG paper
         max_freq=300,
     )
     n_classes = len(mapillary_class_list())
     model = PerceiverClassifier(backbone, n_classes)
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-5)
+    optimizer = torch.optim.Adam(model.parameters(), lr=3e-4)
 
     return train_model(train_loader, eval_loader, model, optimizer, "perceiver_out/")
 
@@ -83,10 +84,10 @@ if __name__ == "__main__":
     # Empty GPU memory.
     torch.cuda.empty_cache()
 
-    perceiver_train_loader = get_perceiver_dataloader(batch_size=20, train=True, max_size=40000)
-    perceiver_eval_loader = get_perceiver_dataloader(batch_size=20, train=False, max_size=40000)
-    train_perceiver(perceiver_train_loader, perceiver_eval_loader)
+    #perceiver_train_loader = get_perceiver_dataloader(batch_size=32, train=True, max_size=40000)
+    #perceiver_eval_loader = get_perceiver_dataloader(batch_size=32, train=False, max_size=40000)
+    #train_perceiver(perceiver_train_loader, perceiver_eval_loader)
 
-    #cnn_train_loader = get_cnn_dataloader(batch_size=20, train=True, im_size=(56, 56))
-    #cnn_eval_loader = get_cnn_dataloader(batch_size=20, train=False, im_size=(56, 56))
-    #train_resnet(cnn_train_loader, cnn_eval_loader)
+    cnn_train_loader = get_cnn_dataloader(batch_size=20, train=True, im_size=(56, 56))
+    cnn_eval_loader = get_cnn_dataloader(batch_size=20, train=False, im_size=(56, 56))
+    train_resnet(cnn_train_loader, cnn_eval_loader)
