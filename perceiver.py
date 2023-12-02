@@ -238,7 +238,8 @@ class Perceiver(nn.Module):
             share_weights=True,
             fourier_pe=True,
             num_freq_bands=64,
-            max_freq=300
+            max_freq=300,
+            dropout_p=0.0,
         ):
         super().__init__()
 
@@ -261,7 +262,7 @@ class Perceiver(nn.Module):
                 latent_channels=dim_latent,
                 data_channels=in_channels + dim_pe,
                 n_heads=n_heads_cross,
-                dropout_p=0
+                dropout_p=dropout_p
             )
 
         def _build_transformer():
@@ -269,7 +270,7 @@ class Perceiver(nn.Module):
                 *[TransformerBlock(
                     in_channels=dim_latent,
                     n_heads=n_heads_self,
-                    dropout_p=0
+                    dropout_p=dropout_p
                 ) for _ in range(n_self_per_cross)]
             )
 
@@ -286,11 +287,6 @@ class Perceiver(nn.Module):
                 self._cross_attend_blocks.append(_build_cross_att())
                 self._transformer_blocks.append(_build_transformer())
         
-
-        #self._cross_attend_1 = CrossAttentionBlock(latent_channels=dim_latent, data_channels=in_channels + dim_pe, n_heads=n_heads_cross, dropout_p=0)
-        #self._transformer_1 = nn.Sequential(*[TransformerBlock(in_channels=dim_latent, n_heads=n_heads_self, dropout_p=0) for _ in range(n_self_per_cross)])
-        #self._cross_attend_2 = CrossAttentionBlock(latent_channels=dim_latent, data_channels=in_channels +  dim_pe, n_heads=n_heads_cross, dropout_p=0)
-        #self._transformer_2 = nn.Sequential(*[TransformerBlock(in_channels=dim_latent, n_heads=n_heads_self, dropout_p=0) for _ in range(n_self_per_cross)])
 
     def forward(self, x):
         byte_array, pe, _, _ = x
