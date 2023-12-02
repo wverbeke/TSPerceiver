@@ -55,7 +55,7 @@ def train_perceiver(train_loader, eval_loader):
         n_blocks=6, # 6 in OG paper
         share_weights=True,
         fourier_pe=True,
-        num_freq_bands=4, # 64 in OG paper
+        num_freq_bands=16, # 64 in OG paper
         max_freq=300,
         dropout_p=0.1
     )

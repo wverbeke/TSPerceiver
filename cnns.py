@@ -116,8 +116,7 @@ class CNNClassifier(nn.Module):
         self._dense = nn.Linear(in_features=body.out_channels, out_features=num_classes, bias=True)
         self._softmax = nn.Softmax(dim=1) if softmax else lambda x: x
 
-    def forward(self, x):
-        x, h, w = x
+    def forward(self, x: torch.Tensor, h: int, w: int):
         x = self._body(x)
         x = self._global_pool(x)
         x = self._dense(x)

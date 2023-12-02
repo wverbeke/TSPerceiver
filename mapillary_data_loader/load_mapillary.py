@@ -178,7 +178,9 @@ class MapillaryDatasetPerceiver(MapillaryDatasetBase):
         n_empty = im.shape[0] - sh*sw
         pe_empty =  torch.zeros(n_empty, 2)
         pe = torch.cat([pe, pe_empty], dim=0)
-        return (im, pe, orig_h, orig_w), anno
+
+        # TODO: This output should be cleaned up.
+        return (im, pe, orig_h, orig_w, sh, sw), anno
 
 
 def make_dataloader(dataset, batch_size, train):

@@ -1,4 +1,6 @@
 """Perceiver model."""
+from typing import Optional
+
 import torch
 from torch import nn
 from math import pi
@@ -47,7 +49,7 @@ class MultiHeadAttention(nn.Module):
 
         self._dropout_p = dropout_p
 
-    def forward(self, q_in: torch.Tensor, kv_in: torch.Tensor):
+    def forward(self, q_in: torch.Tensor, kv_in: torch.Tensor, attention_mask: Optional[torch.Tensor] = None):
         """Forward pass."""
         # We need to transform the keys queries and values to be able to apply multiple attention
         # heads.
@@ -65,7 +67,7 @@ class MultiHeadAttention(nn.Module):
         values = values.view(B, NKV, self._n_heads, self._value_head_dim).transpose(1, 2)
 
         # Torch implementation of flash attention.
-        out = torch.nn.functional.scaled_dot_product_attention(queries, keys, values, attn_mask=None, dropout_p=self._dropout_p if self.training else 0, is_causal=False)
+        out = torch.nn.functional.scaled_dot_product_attention(queries, keys, values, attn_mask=attention_mask, dropout_p=self._dropout_p if self.training else 0, is_causal=False)
 
         # Concatenate the channels from the multiple heads before applying the final linear
         # projection.
@@ -181,10 +183,10 @@ class CrossAttentionBlock(nn.Module):
             return torch.nn.functional.dropout(x, p=dropout_p, training=self.training)
         self._do = _do
 
-    def forward(self, latent, data):
+    def forward(self, latent: torch.Tensor, data: torch.Tensor, attention_mask: torch.Tensor):
         """Forward pass."""
         normed = _ln(latent)
-        latent = latent + self._att(normed, data)
+        latent = latent + self._att(normed, data, attention_mask)
 
         # TODO Does it matter to apply GeLU here instead of ReLU like in GPT papers?
         # I expect ReLU to be faster, but should test it explicitly.
@@ -288,8 +290,9 @@ class Perceiver(nn.Module):
                 self._transformer_blocks.append(_build_transformer())
         
 
-    def forward(self, x):
-        byte_array, pe, _, _ = x
+    # TODO: Clean up argument list here.
+    def forward(self, byte_array: torch.Tensor, pe: torch.Tensor, orig_h: int, orig_w: int, scaled_h: int, scaled_w: int) -> torch.Tensor:
+        #byte_array, pe, _, _, h, w = x
         batch_size = byte_array.shape[0]
 
         # Concat byte array with positional encoding.
@@ -299,11 +302,20 @@ class Perceiver(nn.Module):
         # Repeat the latent array along the batch axis.
         latent = self._latent.repeat(batch_size, 1, 1)
 
+        # Compute a mask for the cross attention mask since we ant to ignore invalid pixels.
+        # It must be of size B, Nq, Nk where Nq is the number of latent queries and Nk the number
+        # of byte array keys.
+        # TODO: Clean this code up!
+        di = torch.arange(byte_array.shape[1]).unsqueeze(0)
+        di = di.repeat(batch_size, 1)
+        num_valid_pix = (scaled_h*scaled_w).unsqueeze(1)
+        cross_attn_mask = (di < num_valid_pix).unsqueeze(1)
+        cross_attn_mask = cross_attn_mask.repeat(1, latent.shape[1], 1).unsqueeze(1).cuda()
+
         # Cross and self attention.
-        x = self._cross_attend_blocks[0](latent, byte_array)
-        x = self._transformer_blocks[0](x)
+        x = latent
         for i, ca in enumerate(self._cross_attend_blocks):
-            x = ca(x, byte_array)
+            x = ca(x, byte_array, cross_attn_mask)
             x = self._transformer_blocks[i](x)
         return x
 
@@ -314,9 +326,10 @@ class PerceiverClassifier(nn.Module):
         self._perceiver = perceiver_model
         self._class_proj = nn.Linear(perceiver_model._latent.shape[-1], n_classes, bias=True)
 
-    def forward(self, x):
-        x = self._perceiver(x)
+    def forward(self, *args):
+        x = self._perceiver(*args)
         x = torch.mean(x, dim=1)
+        x = _ln(x)
         x = self._class_proj(x)
         # Warning: Do not softmax here because torch does it in the loss function.
         return x

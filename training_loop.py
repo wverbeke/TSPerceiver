@@ -34,15 +34,16 @@ class ModelTrainer:
 
     def forward_pass(self, x_batch, y_batch):
         """Forward pass and loss calculation."""
-        if len(x_batch) == 4:
-            x, pe, h, w = x_batch
-            x_batch = (x.to("cuda"), pe.to("cuda"), h, w)
+        # TODO Clean this up. Outputting a Dict in the dataloader would do.
+        if len(x_batch) == 6:
+            x, pe, orig_h, orig_w, scaled_h, scaled_w = x_batch
+            x_batch = (x.to("cuda"), pe.to("cuda"), orig_h, orig_w, scaled_h, scaled_w)
         else:
             x, h, w = x_batch
             x_batch = (x.to("cuda"), h, w)
         y_batch = y_batch.to("cuda")
 
-        pred = self._model(x_batch)
+        pred = self._model(*x_batch)
         loss = self._loss_fn(pred, y_batch)
         return pred, loss
 
@@ -113,8 +114,8 @@ class ModelTrainer:
                 true_classes.append(y_batch)
                 
                 # Extract heights and widths.
-                height_index = 2 if len(x_batch) == 4 else 1
-                width_index = 3 if len(x_batch) == 4 else 2
+                height_index = 2 if len(x_batch) == 6 else 1
+                width_index = 3 if len(x_batch) == 6 else 2
                 heights.append(x_batch[height_index])
                 widths.append(x_batch[width_index])
 
