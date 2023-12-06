@@ -57,11 +57,12 @@ def train_perceiver(train_loader, eval_loader):
         fourier_pe=True,
         num_freq_bands=16, # 64 in OG paper
         max_freq=300,
-        dropout_p=0.1
+        dropout_p=0.0
     )
     n_classes = len(mapillary_class_list())
     model = PerceiverClassifier(backbone, n_classes)
-    optimizer = torch.optim.Adam(model.parameters(), lr=3e-4)
+    #optimizer = torch.optim.Adam(model.parameters(), lr=3e-4)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, betas=(0.9, 0.999), eps=1e-08, weight_decay=1e-3)
 
     return train_model(train_loader, eval_loader, model, optimizer, "perceiver_out/")
 
@@ -85,10 +86,10 @@ if __name__ == "__main__":
     # Empty GPU memory.
     torch.cuda.empty_cache()
 
-    perceiver_train_loader = get_perceiver_dataloader(batch_size=32, train=True, max_size=40000)
-    perceiver_eval_loader = get_perceiver_dataloader(batch_size=32, train=False, max_size=40000)
-    train_perceiver(perceiver_train_loader, perceiver_eval_loader)
+    #perceiver_train_loader = get_perceiver_dataloader(batch_size=32, train=True, max_size=40000)
+    #perceiver_eval_loader = get_perceiver_dataloader(batch_size=32, train=False, max_size=40000)
+    #train_perceiver(perceiver_train_loader, perceiver_eval_loader)
 
-    #cnn_train_loader = get_cnn_dataloader(batch_size=20, train=True, im_size=(56, 56))
-    #cnn_eval_loader = get_cnn_dataloader(batch_size=20, train=False, im_size=(56, 56))
-    #train_resnet(cnn_train_loader, cnn_eval_loader)
+    cnn_train_loader = get_cnn_dataloader(batch_size=32, train=True, im_size=(56, 56))
+    cnn_eval_loader = get_cnn_dataloader(batch_size=32, train=False, im_size=(56, 56))
+    train_resnet(cnn_train_loader, cnn_eval_loader)

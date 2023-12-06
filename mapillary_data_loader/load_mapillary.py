@@ -20,13 +20,17 @@ import einops
 from torchvision import datasets, transforms
 import matplotlib.pyplot as plt
 
-from random_fractional_crop import RandomFractionalCrop
+from random_fractional_crop import RandomFractionalCrop, FractionalCenterCrop
 from torch_list import TorchList
 
 from mapillary_data_loader.make_class_list import mapillary_class_list
-from mapillary_data_loader.preproc_mapillary import TRAIN_ANNOTATION_LIST_PATH, EVAL_ANNOTATION_LIST_PATH, read_annotation
+from mapillary_data_loader.preproc_mapillary import TRAIN_ANNOTATION_LIST_PATH, EVAL_ANNOTATION_LIST_PATH, read_annotation, PADDING_FRACTION
 
-_EVAL_TRANSFORMS = transforms.ToTensor()
+_EVAL_TRANSFORMS = transforms.Compose([
+    transforms.ToTensor(),
+    FractionalCenterCrop(PADDING_FRACTION),
+])
+
 _TRAIN_TRANSFORMS = transforms.Compose([
     transforms.RandomRotation(15),
     #torchvision.transforms.v2.ColorJitter(brightness=
@@ -34,7 +38,7 @@ _TRAIN_TRANSFORMS = transforms.Compose([
     RandomFractionalCrop(min_crop_scale=0.7, max_crop_scale=0.9, seed=69),
 ])
 
-_DATALOADER_KWARGS = {"num_workers": os.cpu_count(), "prefetch_factor": 2}
+_DATALOADER_KWARGS = {"num_workers": os.cpu_count(), "prefetch_factor": 2, "pin_memory": True}
 
 class MapillaryDatasetBase(Dataset):
     """Shared operations between CNN and Perceiver dataloader.

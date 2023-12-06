@@ -45,6 +45,9 @@ class MultiHeadAttention(nn.Module):
 
         # The original transformer paper (https://arxiv.org/abs/1706.03762) also does a projection
         # as a part of the attention block.
+        # Should we have bias here or not? The Lucidrains perceiver has it. NanoGPT on the other
+        # hand either has no bias here if its not in the value, query, and key projections, or a
+        # bias everywhere.
         self._out_transf = nn.Linear(dim_value_out, dim_out, bias=False)
 
         self._dropout_p = dropout_p
