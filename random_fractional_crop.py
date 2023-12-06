@@ -60,6 +60,7 @@ class FractionalCenterCrop:
     Used during evaluation to remove the padding added during preprocessing for random training crops.
     """
     def __init__(self, pad_ratio):
+        assert pad_ratio > 0.0
         self._pad_ratio = pad_ratio
 
     def __call__(self, x: torch.Tensor):
@@ -70,11 +71,11 @@ class FractionalCenterCrop:
         # is 0 in the dataset preprocessing. The reason is that "ceil" and an int conversion is
         # used there, and the ceiling function is not bijective so has no clear inverse.
 
-        # We take the ceil here again even though the true correction factor must at least be as
-        # big as (1 + self._pad_ratio). The reason is to avoid potentially large mistakes for very
-        # small images.
-        orig_h = math.ceil(h/(1 + self._pad_ratio))
-        orig_w = math.ceil(w/(1 + self._pad_ratio))
+        # We take the floor here because the true correction factor must at least be as big as
+        # (1 + self._pad_ratio) and the ceil function is applied to the left and right when making
+        # the padding.
+        orig_h = math.floor(h/(1 + self._pad_ratio))
+        orig_w = math.floor(w/(1 + self._pad_ratio))
 
         return torchvision.transforms.functional.center_crop(x, [orig_h, orig_w])
 
