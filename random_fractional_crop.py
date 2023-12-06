@@ -1,10 +1,12 @@
 import torch
 import random
+import math
 import torchvision
 from PIL import Image
 from torchvision.transforms import ToTensor
 import matplotlib.pyplot as plt
 import einops
+from mapillary_data_loader.preproc_mapillary import PADDING_FRACTION
 
 class RandomFractionalCrop:
     """Random fractional cropping operator.
@@ -52,6 +54,32 @@ class RandomFractionalCrop:
         return """Aspect ratio preserving random crop for any image size."""
 
 
+class FractionalCenterCrop:
+    """Fractional center crop operator.
+
+    Used during evaluation to remove the padding added during preprocessing for random training crops.
+    """
+    def __init__(self, pad_ratio):
+        self._pad_ratio = pad_ratio
+
+    def __call__(self, x: torch.Tensor):
+        """Center crop an image fractionally."""
+        h, w = x.shape[1:]
+
+        # Warning: This will not restore the exact same image as one would get if the padding ratio
+        # is 0 in the dataset preprocessing. The reason is that "ceil" and an int conversion is
+        # used there, and the ceiling function is not bijective so has no clear inverse.
+
+        # We take the ceil here again even though the true correction factor must at least be as
+        # big as (1 + self._pad_ratio). The reason is to avoid potentially large mistakes for very
+        # small images.
+        orig_h = math.ceil(h/(1 + self._pad_ratio))
+        orig_w = math.ceil(w/(1 + self._pad_ratio))
+
+        return torchvision.transforms.functional.center_crop(x, [orig_h, orig_w])
+
+
+
 if __name__ == "__main__":
     # Test the operator.
     test_path = "eval_patches/0xqRtdRNdp11h_OMbC7XZw_patch_0.png"
@@ -71,4 +99,13 @@ if __name__ == "__main__":
         fig.add_subplot(rows, columns, i)
         plt.imshow(im)
     plt.show()
+    plt.clf()
 
+    fcc = FractionalCenterCrop(PADDING_FRACTION)
+    fig = plt.figure(figsize=(8, 8))
+    for i in range(1, columns*rows +1):
+        im = fcc(test_image)
+        im = einops.rearrange(im, "c h w -> h w c")
+        fig.add_subplot(rows, columns, i)
+        plt.imshow(im)
+    plt.show()
